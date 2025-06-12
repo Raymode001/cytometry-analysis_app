@@ -1,0 +1,9 @@
+pandas
+matplotlib
+seaborn
+scipy
+dash
+dash-html-components
+dash-core-components
+dash-table
+gunicorn # Add this line!
