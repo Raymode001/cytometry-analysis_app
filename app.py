@@ -42,7 +42,7 @@ def get_all_data_for_display():
         s.response,
         s.sample_type,
         s.time_from_treatment_start,
-        s.age, # Include age and sex for subject demographics later
+        s.age,
         s.sex,
         p.project_id,
         cc.population,
