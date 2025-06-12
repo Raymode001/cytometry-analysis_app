@@ -22,7 +22,7 @@ import visualization # Although we'll mostly use Plotly directly here
 if os.path.exists(database.db_name):
     os.remove(database.db_name)
     print(f"Existing database '{database.db_name}' removed for a clean start.")
-database.initialize_db()
+database.init_database()
 database.load_data_from_csv('cell-count.csv')
 print("Database initialized and data loaded successfully for Dash app.")
 
