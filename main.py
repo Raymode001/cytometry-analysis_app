@@ -1,62 +1,107 @@
 # main.py (for CLI)
 import database
 import analysis
-import visualization
-import pandas as pd # For creating sample data for add_sample
+import visualization # This import is specifically for CLI's static plotting needs
+import pandas as pd
+import os # To handle DB file for CLI
+import argparse
+from data_loader import DataLoader
+from analysis import CytometryAnalysis
+
 
 def main():
-    """Main function to run the data analysis pipeline."""
-
-    # Task 1: Design and Initialize Database, Load Data
-    print("--- Task 1: Database Initialization and Data Loading ---")
-    database.init_database()
-    database.load_data_from_csv('cell-count.csv')
-
-    # Example: Add a new sample (Demonstrates functionality)
-    print("\n--- Demonstrating Add/Remove Sample ---")
-    new_sample_data = {
-        'project': 'prj_new', 'subject': 'sbj_new', 'condition': 'new_condition',
-        'age': 40, 'sex': 'F', 'treatment': 'tr_new', 'response': 'y',
-        'sample': 's_new', 'sample_type': 'PBMC', 'time_from_treatment_start': 0,
-        'b_cell': 10000, 'cd8_t_cell': 5000, 'cd4_t_cell': 15000,
-        'nk_cell': 2000, 'monocyte': 3000
-    }
-    database.add_sample(new_sample_data)
-
-    # Example: Remove a sample (Demonstrates functionality)
-    database.remove_sample('s_new') # Remove the sample we just added
-
-    # Task 2: Calculate Relative Frequencies
-    print("\n--- Task 2: Calculating Relative Frequencies ---")
-    relative_frequencies_df = analysis.get_relative_frequency()
-    if not relative_frequencies_df.empty:
-        print("\nRelative Frequencies Summary (first 5 rows):")
-        print(relative_frequencies_df.head().to_string())
-        # Save to CSV for Bob
-        relative_frequencies_df.to_csv('relative_frequencies_summary.csv', index=False)
-        print("\nRelative frequencies summary saved to 'relative_frequencies_summary.csv'")
+    parser = argparse.ArgumentParser(description='Cytometry Data Analysis Tool')
+    parser.add_argument('--csv', required=True, help='Path to the cell-count.csv file')
+    parser.add_argument('--output-dir', default='output', help='Directory for output files')
+    args = parser.parse_args()
     
-    # Task 3: Compare Responders vs. Non-Responders and Visualize
-    print("\n--- Task 3: Analyzing Responders vs. Non-Responders ---")
-    if not relative_frequencies_df.empty:
-        # Pass the relative frequencies DataFrame to the analysis function
-        responder_nonresponder_df, stats_results = analysis.analyze_melanoma_tr1_response(relative_frequencies_df)
-        if not responder_nonresponder_df.empty:
-            visualization.plot_relative_frequencies_boxplot(responder_nonresponder_df, "melanoma_tr1_response_boxplots.png")
-    else:
-        print("Cannot perform responder vs. non-responder analysis: relative frequencies not calculated.")
+    # Create output directory if it doesn't exist
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    # Initialize data loader and analysis
+    data_loader = DataLoader()
+    analysis = CytometryAnalysis(data_loader)
+    
+    # Load data
+    print("Loading data from CSV...")
+    data_loader.load_csv(args.csv)
+    
+    # Generate analyses
+    print("\nGenerating analyses...")
+    
+    # Cell frequencies
+    print("Calculating cell frequencies...")
+    cell_freq = analysis.analyze_cell_frequencies()
+    cell_freq.to_csv(os.path.join(args.output_dir, 'cell_frequencies.csv'), index=False)
+    
+    # Response comparison
+    print("Analyzing response comparison...")
+    response_comp, sig_pops = analysis.analyze_response_comparison()
+    response_comp.to_csv(os.path.join(args.output_dir, 'response_comparison.csv'), index=False)
+    
+    # Plot response comparison
+    print("Generating response comparison plot...")
+    analysis.plot_response_comparison(
+        save_path=os.path.join(args.output_dir, 'response_comparison.png')
+    )
+    
+    # Baseline analysis
+    print("Analyzing baseline melanoma tr1 samples...")
+    baseline = analysis.analyze_baseline_melanoma_tr1()
+    baseline.to_csv(os.path.join(args.output_dir, 'baseline_analysis.csv'), index=False)
+    
+    # Generate summary report
+    print("Generating summary report...")
+    summary = analysis.generate_summary_report(
+        output_path=os.path.join(args.output_dir, 'summary_report.txt')
+    )
+    
+    print("\nAnalysis complete! Output files are in:", args.output_dir)
+    print("\nSummary Report:")
+    print(summary)
 
-    # Task 4: Explore Specific Subsets (Baseline Melanoma Samples)
-    print("\n--- Task 4: Exploring Baseline Melanoma Samples ---")
-    # Fetch relevant sample and subject info from DB for this query
-    all_sample_subject_data = database.fetch_samples_with_subject_info() 
-    if not all_sample_subject_data.empty:
-        baseline_melanoma_samples_df, aggregated_counts = analysis.query_baseline_melanoma_tr1_samples(all_sample_subject_data)
-        if not baseline_melanoma_samples_df.empty:
-            print("\nBaseline Melanoma PBMC Samples (Treatment tr1) - First 5 rows:")
-            print(baseline_melanoma_samples_df.head().to_string())
-    else:
-        print("Cannot explore baseline samples: no sample/subject data available.")
+
+# Helper for CLI to fetch wide data (mimics app.py's get_all_data_for_display)
+def _get_all_data_wide_for_cli():
+    """
+    Fetches all data from DB, pivots cell counts to columns, and returns a wide-format DataFrame.
+    This is a copy of the logic in app.py's get_all_data_for_display, for CLI independence.
+    """
+    conn = database.get_db_connection()
+    try:
+        query = """
+        SELECT
+            p.project_id AS project,
+            s.subject_id AS subject,
+            samp.condition,
+            s.age,
+            s.sex,
+            samp.treatment,
+            samp.response,
+            samp.sample_id AS sample,
+            samp.sample_type,
+            samp.time_from_treatment_start,
+            SUM(CASE WHEN cc.population = 'b_cell' THEN cc.count ELSE 0 END) AS b_cell,
+            SUM(CASE WHEN cc.population = 'cd8_t_cell' THEN cc.count ELSE 0 END) AS cd8_t_cell,
+            SUM(CASE WHEN cc.population = 'cd4_t_cell' THEN cc.count ELSE 0 END) AS cd4_t_cell,
+            SUM(CASE WHEN cc.population = 'nk_cell' THEN cc.count ELSE 0 END) AS nk_cell,
+            SUM(CASE WHEN cc.population = 'monocyte' THEN cc.count ELSE 0 END) AS monocyte
+        FROM projects p
+        JOIN subjects s ON p.project_id = s.project_id
+        JOIN samples samp ON s.subject_id = samp.subject_id
+        LEFT JOIN cell_counts cc ON samp.sample_id = cc.sample_id
+        GROUP BY p.project_id, s.subject_id, samp.condition, s.age, s.sex, samp.treatment, samp.response,
+                 samp.sample_id, samp.sample_type, samp.time_from_treatment_start
+        ORDER BY samp.sample_id;
+        """
+        df = pd.read_sql_query(query, conn)
+    except Exception as e:
+        print(f"CLI Data Fetch Error: {e}")
+        return pd.DataFrame()
+    finally:
+        conn.close()
+    return df
+
 
 if __name__ == "__main__":
     main()
