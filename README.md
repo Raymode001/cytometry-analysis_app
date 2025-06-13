@@ -130,6 +130,7 @@ The application is configured for deployment with:
 - `Procfile` for process management
 - `runtime.txt` for Python version specification
 - Database persistence configuration
+- Deployed via Render.com
 
 ## Contributing
 
